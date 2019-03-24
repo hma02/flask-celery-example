@@ -3,7 +3,7 @@ import random
 import time
 from flask import Flask, request, render_template, session, flash, redirect, \
     url_for, jsonify
-from flask.ext.mail import Mail, Message
+from flask_mail import Mail, Message
 from celery import Celery
 
 
@@ -27,7 +27,8 @@ app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6379/0'
 mail = Mail(app)
 
 # Initialize Celery
-celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'])
+celery = Celery(app.name, broker=app.config['CELERY_BROKER_URL'], task_serializer='pickle',
+    result_serializer='pickle', accept_content=['pickle'],)
 celery.conf.update(app.config)
 
 
@@ -35,7 +36,11 @@ celery.conf.update(app.config)
 def send_async_email(msg):
     """Background task to send an email with Flask-Mail."""
     with app.app_context():
-        mail.send(msg)
+        
+        _msg = Message(msg['subject'],
+                      msg['recipients'])
+        _msg.body = 'This is a test email sent from a background Celery task.'
+        mail.send(_msg)
 
 
 @celery.task(bind=True)
@@ -67,9 +72,10 @@ def index():
     session['email'] = email
 
     # send the email
-    msg = Message('Hello from Flask',
-                  recipients=[request.form['email']])
-    msg.body = 'This is a test email sent from a background Celery task.'
+    msg = {'subject':'Hello from Flask',
+            'body': 'This is a test email sent from a background Celery task.',
+            'recipients':[request.form['email']]}
+
     if request.form['submit'] == 'Send':
         # send right away
         send_async_email.delay(msg)
@@ -120,4 +126,4 @@ def taskstatus(task_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=8282)
